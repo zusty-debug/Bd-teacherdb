@@ -88,6 +88,15 @@ class DesignationCount(BaseModel):
     count: int
 
 
+class FiltersOut(BaseModel):
+    """Distinct values for each filterable field (useful for UI dropdowns)."""
+    designations: list[str]
+    subjects: list[str]
+    statuses: list[str]
+    genders: list[str]
+    verification_statuses: list[str]
+
+
 class StatsOut(BaseModel):
     total_employees: int
     total_institutions: int

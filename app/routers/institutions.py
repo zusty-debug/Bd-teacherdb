@@ -1,7 +1,8 @@
-"""Institutions listing + aggregate stats (require a valid API key)."""
+"""Institutions + aggregates + metadata (require a valid API key)."""
+import math
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -39,6 +40,70 @@ def list_institutions(
         )
         for i, employee_count in rows
     ]
+
+
+@router.get("/institutions/{eiin}", response_model=schemas.InstitutionOut)
+def get_institution(eiin: str, db: Session = Depends(get_db)):
+    inst = db.query(models.Institution).filter(models.Institution.eiin == eiin).first()
+    if not inst:
+        raise HTTPException(status_code=404, detail="Institution not found")
+    employee_count = (
+        db.query(func.count(models.Employee.id))
+        .filter(models.Employee.institution_id == inst.id)
+        .scalar()
+        or 0
+    )
+    return schemas.InstitutionOut(
+        id=inst.id, eiin=inst.eiin, ins_mpo_code=inst.ins_mpo_code,
+        ins_branch_id=inst.ins_branch_id, ps_id=inst.ps_id,
+        employee_count=employee_count,
+    )
+
+
+@router.get("/institutions/{eiin}/employees", response_model=schemas.PaginatedEmployees)
+def list_institution_employees(
+    eiin: str,
+    designation_name: Optional[str] = Query(default=None),
+    status_name: Optional[str] = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=50, ge=1, le=MAX_PER_PAGE),
+    db: Session = Depends(get_db),
+):
+    inst = db.query(models.Institution).filter(models.Institution.eiin == eiin).first()
+    if not inst:
+        raise HTTPException(status_code=404, detail="Institution not found")
+
+    q = db.query(models.Employee).filter(models.Employee.institution_id == inst.id)
+    if designation_name:
+        q = q.filter(models.Employee.designation_name == designation_name)
+    if status_name:
+        q = q.filter(models.Employee.status_name == status_name)
+
+    total = q.count()
+    items = q.order_by(models.Employee.id).offset((page - 1) * per_page).limit(per_page).all()
+    pages = max(1, math.ceil(total / per_page)) if total else 1
+
+    return schemas.PaginatedEmployees(
+        total=total, page=page, per_page=per_page, pages=pages,
+        items=[schemas.EmployeeOut.model_validate(e) for e in items],
+    )
+
+
+@router.get("/filters", response_model=schemas.FiltersOut)
+def get_filters(db: Session = Depends(get_db)):
+    """Distinct values for each filterable field (for UI dropdowns)."""
+
+    def distinct(col):
+        rows = db.query(col).distinct().order_by(col).all()
+        return sorted(r[0] for r in rows if r[0] is not None and r[0] != "")
+
+    return schemas.FiltersOut(
+        designations=distinct(models.Employee.designation_name),
+        subjects=distinct(models.Employee.subject_name),
+        statuses=distinct(models.Employee.status_name),
+        genders=distinct(models.Employee.gender),
+        verification_statuses=distinct(models.Employee.verification_status),
+    )
 
 
 @router.get("/stats", response_model=schemas.StatsOut)

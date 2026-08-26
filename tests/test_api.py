@@ -143,6 +143,44 @@ def test_institution_fields_preserved(client, api_key):
     assert inst["ps_id"] == 100105234
 
 
+def test_institution_detail_and_employees(client, api_key):
+    seed()
+    # Detail by EIIN
+    resp = client.get("/api/v1/institutions/100005", headers=api_key)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["employee_count"] == 3
+    assert body["ins_mpo_code"] == "6501101301"
+
+    # Employees of an institution
+    resp = client.get("/api/v1/institutions/100005/employees", headers=api_key)
+    assert resp.json()["total"] == 3
+
+    # With a filter
+    resp = client.get(
+        "/api/v1/institutions/100005/employees",
+        params={"designation_name": "HEAD MASTER"},
+        headers=api_key,
+    )
+    assert resp.json()["total"] == 1
+
+    # 404 for unknown institution
+    assert client.get("/api/v1/institutions/999999", headers=api_key).status_code == 404
+    assert client.get("/api/v1/institutions/999999/employees", headers=api_key).status_code == 404
+
+
+def test_filters_endpoint(client, api_key):
+    seed()
+    resp = client.get("/api/v1/filters", headers=api_key)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "HEAD MASTER" in body["designations"]
+    assert "Male" in body["genders"]
+    assert "Female" in body["genders"]
+    # Bengali status present
+    assert "কর্মরত" in body["statuses"]
+
+
 def test_stats_and_institutions(client, api_key):
     seed()
     stats = client.get("/api/v1/stats", headers=api_key).json()
