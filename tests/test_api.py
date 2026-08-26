@@ -1,13 +1,11 @@
-import io
-
 from app.database import SessionLocal
 from app.importer import import_csv
 
-SAMPLE_CSV = """student_id,school_name,school_code,first_name,last_name,date_of_birth,gender,grade,section,admission_date,email,phone,status
-SUN001-000001,Sunrise Public School,SUN001,Aarav,Sharma,2010-05-12,Male,10,A,2021-04-01,aarav.sharma1@example.com,9123456789,active
-SUN001-000002,Sunrise Public School,SUN001,Ananya,Verma,2011-03-20,Female,9,B,2021-04-01,ananya.verma2@example.com,9123456780,active
-GVA002-000003,Green Valley Academy,GVA002,Rohan,Gupta,2009-11-02,Male,11,A,2020-06-15,rohan.gupta3@example.com,9123456781,active
-GVA002-000004,Green Valley Academy,GVA002,Priya,Reddy,2012-07-25,Female,8,C,2021-04-01,priya.reddy4@example.com,9123456782,transferred
+SAMPLE_CSV = """empName,empNameBn,designationName,designationId,subjectName,subjectId,statusName,statusId,eiin,insMpoCode,insBranchId,psID,mpoIndex,id,dob,genderName,genderId,mobileNo,emailId,nid,fatherName,motherName,bankAccNo,payCode,payCodeId,payCodeStepId,basic,remarks,verificationStatus,isSubmit,isUpdated,designationUpdatable,subjectUpdatable
+MD ZAMAL HOSSAIN,MD ZAMAL HOSSAIN,HEAD MASTER,76,N/A (NOT APPLICABLE),1,কর্মরত,1,100005,6501101301,15988,100105234,B214451,187041,12-09-1969,Male,1,01733135617,,,,,2456,Pay Code 07,7,105,45040,Validation Completed,Verification Completed,1,1,0,1
+ANUKUL CHANDRO SHIL,অনুকুল চন্দ্র শীল,ASSISTANT HEAD MASTER,7,N/A (NOT APPLICABLE),1,কর্মরত,1,100005,6501101301,15988,100105276,B288286,184123,25-06-1972,Female,2,01729785809,,,,,2459,Pay Code 08,8,105,35720,Validation Completed,Verification Completed,1,1,0,1
+SAYMALI RANI,SAYMALI RANI,HINDU RELIGION TEACHER,4,N/A (NOT APPLICABLE),1,কর্মরত,1,100005,6501101301,15988,100462434,N1070722,396048,04-02-1986,Female,2,01745581350,,,,,2853,Pay Code 09,9,3,25480,Validation Completed,Verification Completed,1,1,0,1
+REHANA AKTER,রেহানা আক্তার,ASSISTANT TEACHER,56,LIBRARY AND INFORMATION SCIENCE,849,কর্মরত,1,200001,6502202202,16000,100500000,M55555,415072,01-01-1983,Female,2,01718239641,,0410979364746,MD. MENHAZ UDDIN,SAKINA BEGUM,2852,Pay Code 09,9,4,22000,Validation Completed,Verification Completed,1,1,0,1
 """
 
 
@@ -25,8 +23,8 @@ def test_health(client):
 
 def test_data_requires_api_key(client):
     seed()
-    assert client.get("/api/v1/students").status_code == 401
-    assert client.get("/api/v1/schools").status_code == 401
+    assert client.get("/api/v1/employees").status_code == 401
+    assert client.get("/api/v1/institutions").status_code == 401
     assert client.get("/api/v1/stats").status_code == 401
 
 
@@ -40,7 +38,6 @@ def test_admin_requires_master_key(client):
 def test_full_key_lifecycle(client, master_headers):
     seed()
 
-    # Create key -> full key returned once
     resp = client.post("/api/v1/admin/keys", json={"name": "frontend"}, headers=master_headers)
     assert resp.status_code == 201
     body = resp.json()
@@ -50,100 +47,116 @@ def test_full_key_lifecycle(client, master_headers):
     key = body["key"]
     h = {"X-API-Key": key}
 
-    # Key works
-    assert client.get("/api/v1/students", headers=h).status_code == 200
-    assert client.get("/api/v1/schools", headers=h).status_code == 200
+    assert client.get("/api/v1/employees", headers=h).status_code == 200
+    assert client.get("/api/v1/institutions", headers=h).status_code == 200
     assert client.get("/api/v1/stats", headers=h).status_code == 200
 
-    # List keys (master)
     keys = client.get("/api/v1/admin/keys", headers=master_headers).json()
     assert len(keys) == 1
     assert keys[0]["key_prefix"] == key[:14]
 
-    # Revoke -> key stops working
     kid = body["id"]
     assert client.delete(f"/api/v1/admin/keys/{kid}", headers=master_headers).status_code == 204
-    assert client.get("/api/v1/students", headers=h).status_code == 401
+    assert client.get("/api/v1/employees", headers=h).status_code == 401
 
-    # Toggle back on
     toggled = client.post(f"/api/v1/admin/keys/{kid}/toggle", headers=master_headers).json()
     assert toggled["active"] is True
-    assert client.get("/api/v1/students", headers=h).status_code == 200
+    assert client.get("/api/v1/employees", headers=h).status_code == 200
+
+
+def test_import_mapping(client, api_key):
+    seed()
+    resp = client.get("/api/v1/employees/1", headers=api_key)
+    body = resp.json()
+    assert body["name"] == "MD ZAMAL HOSSAIN"
+    assert body["designation_name"] == "HEAD MASTER"
+    assert body["eiin"] == "100005"
+    assert body["date_of_birth"] == "1969-09-12"  # DD-MM-YYYY parsed correctly
+    assert body["basic"] == 45040
+    assert body["is_submit"] is True
+    assert body["designation_updatable"] is False
+    assert body["gender"] == "Male"
 
 
 def test_query_filters_and_pagination(client, api_key):
     seed()
 
-    # All rows
-    resp = client.get("/api/v1/students", headers=api_key)
+    resp = client.get("/api/v1/employees", headers=api_key)
     assert resp.json()["total"] == 4
 
-    # Filter by school
-    resp = client.get("/api/v1/students", params={"school_code": "SUN001"}, headers=api_key)
-    assert resp.json()["total"] == 2
+    # Filter by institution EIIN
+    resp = client.get("/api/v1/employees", params={"eiin": "100005"}, headers=api_key)
+    assert resp.json()["total"] == 3
 
-    # Filter by grade + status
-    resp = client.get("/api/v1/students", params={"grade": "10"}, headers=api_key)
+    # Filter by designation
+    resp = client.get("/api/v1/employees", params={"designation_name": "HEAD MASTER"}, headers=api_key)
     assert resp.json()["total"] == 1
-    assert resp.json()["items"][0]["first_name"] == "Aarav"
 
-    # Search by last name
-    resp = client.get("/api/v1/students", params={"search": "Reddy"}, headers=api_key)
+    # Filter by gender
+    resp = client.get("/api/v1/employees", params={"gender": "Female"}, headers=api_key)
+    assert resp.json()["total"] == 3
+
+    # Search by name
+    resp = client.get("/api/v1/employees", params={"search": "rehana"}, headers=api_key)
+    assert resp.json()["total"] == 1
+
+    # Search by Bengali name
+    resp = client.get("/api/v1/employees", params={"search": "রেহানা"}, headers=api_key)
+    assert resp.json()["total"] == 1
+
+    # Search by NID
+    resp = client.get("/api/v1/employees", params={"search": "0410979364746"}, headers=api_key)
     assert resp.json()["total"] == 1
 
     # Pagination
-    resp = client.get("/api/v1/students", params={"per_page": 2, "page": 2}, headers=api_key)
+    resp = client.get("/api/v1/employees", params={"per_page": 2, "page": 2}, headers=api_key)
     body = resp.json()
     assert body["total"] == 4
     assert body["pages"] == 2
     assert len(body["items"]) == 2
 
-    # Sorting
-    resp = client.get(
-        "/api/v1/students", params={"sort": "first_name", "order": "asc"}, headers=api_key
-    )
-    names = [i["first_name"] for i in resp.json()["items"]]
+    # Sort by name
+    resp = client.get("/api/v1/employees", params={"sort": "name", "order": "asc"}, headers=api_key)
+    names = [i["name"] for i in resp.json()["items"]]
     assert names == sorted(names)
 
 
-def test_single_student(client, api_key):
+def test_single_employee(client, api_key):
     seed()
-    resp = client.get("/api/v1/students/1", headers=api_key)
+    resp = client.get("/api/v1/employees/2", headers=api_key)
     assert resp.status_code == 200
     body = resp.json()
-    assert body["school_name"] == "Sunrise Public School"
-    assert body["first_name"] == "Aarav"
+    assert body["name"] == "ANUKUL CHANDRO SHIL"
+    assert body["name_bn"] == "অনুকুল চন্দ্র শীল"
 
-    assert client.get("/api/v1/students/99999", headers=api_key).status_code == 404
+    assert client.get("/api/v1/employees/99999", headers=api_key).status_code == 404
 
 
-def test_stats_and_schools(client, api_key):
+def test_institution_fields_preserved(client, api_key):
+    """Regression: institution attrs (mpo code, branch id, ps id) must be set."""
+    seed()
+    institutions = client.get("/api/v1/institutions", headers=api_key).json()
+    by_eiin = {i["eiin"]: i for i in institutions}
+    inst = by_eiin["100005"]
+    assert inst["ins_mpo_code"] == "6501101301"
+    assert inst["ins_branch_id"] == 15988
+    assert inst["ps_id"] == 100105234
+
+
+def test_stats_and_institutions(client, api_key):
     seed()
     stats = client.get("/api/v1/stats", headers=api_key).json()
-    assert stats["total_students"] == 4
-    assert stats["total_schools"] == 2
-    assert {g["grade"] for g in stats["by_grade"]} == {"8", "9", "10", "11"}
+    assert stats["total_employees"] == 4
+    assert stats["total_institutions"] == 2
+    assert len(stats["by_gender"]) == 2
+    assert stats["by_gender"][0]["gender"] == "Female"
 
-    schools = client.get("/api/v1/schools", headers=api_key).json()
-    assert len(schools) == 2
-    counts = {s["code"]: s["student_count"] for s in schools}
-    assert counts == {"SUN001": 2, "GVA002": 2}
+    institutions = client.get("/api/v1/institutions", headers=api_key).json()
+    assert len(institutions) == 2
+    counts = {i["eiin"]: i["employee_count"] for i in institutions}
+    assert counts == {"100005": 3, "200001": 1}
 
-
-def test_unknown_columns_go_to_extra(client, api_key):
-    csv = (
-        "student_id,first_name,custom_field_xyz,age\n"
-        "ID-1,Test,hello,15\n"
-    )
-    db = SessionLocal()
-    try:
-        summary = import_csv(db, csv.encode("utf-8"), default_school_name="Default School")
-    finally:
-        db.close()
-    assert "custom_field_xyz" in summary["unknown_columns"]
-    assert "age" in summary["unknown_columns"]
-
-    resp = client.get("/api/v1/students/1", headers=api_key)
-    body = resp.json()
-    assert body["extra"]["custom_field_xyz"] == "hello"
-    assert body["school_name"] == "Default School"
+    # Institution search by EIIN
+    found = client.get("/api/v1/institutions", params={"search": "200001"}, headers=api_key).json()
+    assert len(found) == 1
+    assert found[0]["eiin"] == "200001"

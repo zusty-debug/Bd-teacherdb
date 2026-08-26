@@ -1,56 +1,69 @@
 """Pydantic schemas for request/response serialization."""
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
 
 
-class StudentOut(BaseModel):
+class EmployeeOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    school_id: int
-    school_name: Optional[str] = None
-    school_code: Optional[str] = None
-    student_code: Optional[str] = None
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
+    institution_id: int
+    eiin: str
+    emis_id: Optional[int] = None
+    name: Optional[str] = None
+    name_bn: Optional[str] = None
+    designation_name: Optional[str] = None
+    designation_id: Optional[int] = None
+    subject_name: Optional[str] = None
+    subject_id: Optional[int] = None
+    status_name: Optional[str] = None
+    status_id: Optional[int] = None
+    mpo_index: Optional[str] = None
     date_of_birth: Optional[date] = None
     gender: Optional[str] = None
-    grade: Optional[str] = None
-    section: Optional[str] = None
-    admission_date: Optional[date] = None
+    gender_id: Optional[int] = None
+    mobile_no: Optional[str] = None
     email: Optional[str] = None
-    phone: Optional[str] = None
-    address: Optional[str] = None
-    guardian_name: Optional[str] = None
-    guardian_phone: Optional[str] = None
-    status: Optional[str] = None
-    extra: Optional[dict[str, Any]] = None
+    nid: Optional[str] = None
+    father_name: Optional[str] = None
+    mother_name: Optional[str] = None
+    bank_acc_no: Optional[str] = None
+    pay_code: Optional[str] = None
+    pay_code_id: Optional[int] = None
+    pay_code_step_id: Optional[int] = None
+    basic: Optional[int] = None
+    remarks: Optional[str] = None
+    verification_status: Optional[str] = None
+    is_submit: Optional[bool] = None
+    is_updated: Optional[bool] = None
+    designation_updatable: Optional[bool] = None
+    subject_updatable: Optional[bool] = None
 
 
-class PaginatedStudents(BaseModel):
+class PaginatedEmployees(BaseModel):
     total: int
     page: int
     per_page: int
     pages: int
-    items: list[StudentOut]
+    items: list[EmployeeOut]
 
 
-class SchoolOut(BaseModel):
+class InstitutionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    name: str
-    code: str
-    city: Optional[str] = None
-    state: Optional[str] = None
-    student_count: int = 0
+    eiin: str
+    ins_mpo_code: Optional[str] = None
+    ins_branch_id: Optional[int] = None
+    ps_id: Optional[int] = None
+    employee_count: int = 0
 
 
 class ApiKeyCreate(BaseModel):
     name: str
-    school_id: Optional[int] = None
+    institution_id: Optional[int] = None
 
 
 class ApiKeyOut(BaseModel):
@@ -59,7 +72,7 @@ class ApiKeyOut(BaseModel):
     id: int
     name: str
     key_prefix: str
-    school_id: Optional[int] = None
+    institution_id: Optional[int] = None
     active: bool
     created_at: datetime
     last_used_at: Optional[datetime] = None
@@ -70,13 +83,15 @@ class ApiKeyCreated(ApiKeyOut):
     key: Optional[str] = None
 
 
-class GradeCount(BaseModel):
-    grade: Optional[str] = None
+class DesignationCount(BaseModel):
+    designation_name: Optional[str] = None
     count: int
 
 
 class StatsOut(BaseModel):
-    total_students: int
-    total_schools: int
-    by_grade: list[GradeCount]
-    by_school: list[dict[str, Any]]
+    total_employees: int
+    total_institutions: int
+    by_designation: list[DesignationCount]
+    by_gender: list[dict]
+    by_status: list[dict]
+    top_institutions: list[dict]

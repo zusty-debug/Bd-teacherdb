@@ -18,17 +18,17 @@ router = APIRouter(
 
 @router.post("/keys", response_model=schemas.ApiKeyCreated, status_code=201)
 def create_key(payload: schemas.ApiKeyCreate, db: Session = Depends(get_db)):
-    if payload.school_id is not None:
-        school = db.query(models.School).filter(models.School.id == payload.school_id).first()
-        if not school:
-            raise HTTPException(status_code=400, detail="school_id does not exist")
+    if payload.institution_id is not None:
+        inst = db.query(models.Institution).filter(models.Institution.id == payload.institution_id).first()
+        if not inst:
+            raise HTTPException(status_code=400, detail="institution_id does not exist")
 
     full_key, prefix = generate_api_key()
     key = models.ApiKey(
         name=payload.name,
         key_hash=hash_key(full_key),
         key_prefix=prefix,
-        school_id=payload.school_id,
+        institution_id=payload.institution_id,
         active=True,
     )
     db.add(key)

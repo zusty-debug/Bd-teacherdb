@@ -1,14 +1,14 @@
 """Flexible CSV -> database importer (optimized for large files).
 
-Reads any CSV, maps recognized columns to Student/School fields, and stashes
-unrecognized columns in the Student.extra JSONB column. Header names are
-normalized (lowercased, non-alphanumerics stripped) before matching, so
-"First Name", "first_name", and "FIRSTNAME" all map to `first_name`.
+Tuned for the Bangladesh EMIS dataset (33 columns) but tolerant of naming
+variations: header names are normalized (lowercased, non-alphanumerics
+stripped) before matching, and any unrecognized columns are preserved in a
+JSONB-free `extra`-style fallback (see note below).
 
 Performance notes for large files (100k+ rows):
-  * Schools are resolved through an in-memory cache (one DB hit per *new*
-    school, not per row).
-  * Students are written with chunked bulk INSERTs.
+  * Institutions are resolved through an in-memory cache (one DB hit per
+    *new* institution, not per row).
+  * Employees are written with chunked bulk INSERTs.
 """
 import csv
 import io
@@ -19,54 +19,71 @@ from sqlalchemy.orm import Session
 
 from . import models
 
-# Normalized header -> Student column. School name/code are resolved to School rows.
+# Normalized header -> Employee column.
 COLUMN_MAP = {
-    "studentid": "student_code",
-    "studentcode": "student_code",
-    "rollno": "student_code",
-    "rollnumber": "student_code",
-    "admissionno": "student_code",
-    "admissionnumber": "student_code",
-    "enrollmentno": "student_code",
-    "registrationno": "student_code",
-    "firstname": "first_name",
-    "lastname": "last_name",
-    "name": None,  # handled specially -> split into first/last name
-    "fullname": None,
-    "dateofbirth": "date_of_birth",
+    # name
+    "empname": "name",
+    "name": "name",
+    "empnamebn": "name_bn",
+    "namebn": "name_bn",
+    # designation
+    "designationname": "designation_name",
+    "designationid": "designation_id",
+    "designation": "designation_name",
+    # subject
+    "subjectname": "subject_name",
+    "subjectid": "subject_id",
+    "subject": "subject_name",
+    # status
+    "statusname": "status_name",
+    "statusid": "status_id",
+    "status": "status_name",
+    # institution codes
+    "eiin": "eiin",
+    "insmpocode": "ins_mpo_code",
+    "insbranchid": "ins_branch_id",
+    "psid": "ps_id",
+    "mpoindex": "mpo_index",
+    # identity
+    "id": "emis_id",
+    "emisid": "emis_id",
     "dob": "date_of_birth",
-    "birthdate": "date_of_birth",
+    "dateofbirth": "date_of_birth",
+    "gendername": "gender",
+    "genderid": "gender_id",
     "gender": "gender",
     "sex": "gender",
-    "grade": "grade",
-    "class": "grade",
-    "classname": "grade",
-    "standard": "grade",
-    "section": "section",
-    "admissiondate": "admission_date",
-    "dateofadmission": "admission_date",
+    "mobileno": "mobile_no",
+    "mobile": "mobile_no",
+    "phone": "mobile_no",
+    "emailid": "email",
     "email": "email",
-    "emailaddress": "email",
-    "phone": "phone",
-    "phoneno": "phone",
-    "mobileno": "phone",
-    "contact": "phone",
-    "address": "address",
-    "guardianname": "guardian_name",
-    "fathername": "guardian_name",
-    "parentname": "guardian_name",
-    "guardianphone": "guardian_phone",
-    "fatherphone": "guardian_phone",
-    "status": "status",
-    "schoolid": "school_id",
-    "school": "school_name",
-    "schoolname": "school_name",
-    "schoolcode": "school_code",
+    "nid": "nid",
+    "fathername": "father_name",
+    "mothername": "mother_name",
+    "bankaccno": "bank_acc_no",
+    # pay
+    "paycode": "pay_code",
+    "paycodeid": "pay_code_id",
+    "paycodestepid": "pay_code_step_id",
+    "basic": "basic",
+    # misc
+    "remarks": "remarks",
+    "verificationstatus": "verification_status",
+    "issubmit": "is_submit",
+    "isupdated": "is_updated",
+    "designationupdatable": "designation_updatable",
+    "subjectupdatable": "subject_updatable",
 }
 
-# School-level fields are resolved once per row and must not land in `extra`.
-_SCHOOL_LEVEL = {"school_name", "school_code", "school_id"}
-_IGNORED = {"", "id", "sno", "srno", "serialno", "slno"}
+# Columns that live on the Institution row, resolved once per employee row.
+_INSTITUTION_FIELDS = {"eiin", "ins_mpo_code", "ins_branch_id", "ps_id"}
+
+_INT_FIELDS = {
+    "designation_id", "subject_id", "status_id", "gender_id", "ins_branch_id",
+    "ps_id", "emis_id", "pay_code_id", "pay_code_step_id", "basic",
+}
+_BOOL_FIELDS = {"is_submit", "is_updated", "designation_updatable", "subject_updatable"}
 
 BATCH_SIZE = 5000
 
@@ -79,7 +96,8 @@ def _parse_date(value):
     if value is None or value == "":
         return None
     value = str(value).strip()
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%m-%d-%Y", "%Y/%m/%d"):
+    # Bangladesh EMIS uses DD-MM-YYYY (day first).
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d", "%d.%m.%Y"):
         try:
             return datetime.strptime(value, fmt).date()
         except ValueError:
@@ -87,31 +105,53 @@ def _parse_date(value):
     return None
 
 
-class _SchoolCache:
-    """Resolves school rows with minimal DB round-trips."""
+def _parse_int(value):
+    if value is None or value == "":
+        return None
+    value = str(value).strip()
+    try:
+        return int(float(value))
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_bool(value):
+    if value is None or value == "":
+        return None
+    v = str(value).strip().lower()
+    if v in ("1", "true", "yes", "y"):
+        return True
+    if v in ("0", "false", "no", "n"):
+        return False
+    return None
+
+
+class _InstitutionCache:
+    """Resolves institution rows with minimal DB round-trips (keyed by EIIN)."""
 
     def __init__(self, db: Session):
         self.db = db
-        self.by_code: dict[str, models.School] = {}
-        self.by_name: dict[str, models.School] = {}
-        for s in db.query(models.School).all():
-            self.by_code[s.code] = s
-            self.by_name[s.name] = s
+        self.by_eiin: dict[str, models.Institution] = {}
+        for inst in db.query(models.Institution).all():
+            self.by_eiin[inst.eiin] = inst
 
-    def get_or_create(self, name: str, code: str | None) -> models.School:
-        if code and code in self.by_code:
-            return self.by_code[code]
-        if name in self.by_name:
-            return self.by_name[name]
-        school = models.School(name=name, code=code or f"school-{abs(hash(name)) % 10**8}")
-        self.db.add(school)
-        self.db.flush()  # assign id
-        self.by_code[school.code] = school
-        self.by_name[school.name] = school
-        return school
+    def get_or_create(self, eiin: str, mpo_code, branch_id, ps_id) -> models.Institution:
+        inst = self.by_eiin.get(eiin)
+        if inst:
+            return inst
+        inst = models.Institution(
+            eiin=eiin,
+            ins_mpo_code=mpo_code,
+            ins_branch_id=branch_id,
+            ps_id=ps_id,
+        )
+        self.db.add(inst)
+        self.db.flush()
+        self.by_eiin[eiin] = inst
+        return inst
 
 
-def import_csv(db: Session, csv_bytes: bytes, default_school_name: str = "Default School") -> dict:
+def import_csv(db: Session, csv_bytes: bytes, default_eiin: str | None = None) -> dict:
     """Import a CSV file's bytes. Returns summary stats."""
     text = csv_bytes.decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(text))
@@ -123,7 +163,7 @@ def import_csv(db: Session, csv_bytes: bytes, default_school_name: str = "Defaul
         raw = norm_to_raw.get(norm_key)
         return row.get(raw) if raw is not None else None
 
-    schools = _SchoolCache(db)
+    institutions = _InstitutionCache(db)
     inserted = 0
     skipped = 0
     unknown_cols: set[str] = set()
@@ -132,53 +172,54 @@ def import_csv(db: Session, csv_bytes: bytes, default_school_name: str = "Defaul
     def flush():
         nonlocal batch
         if batch:
-            db.execute(insert(models.Student), batch)
+            db.execute(insert(models.Employee), batch)
             batch = []
 
     for row in reader:
-        # --- resolve school ---
-        school_name = col("schoolname", row) or col("school", row) or default_school_name
-        school_code = col("schoolcode", row)
-        if not school_name and not school_code:
-            school_name = default_school_name
+        eiin = col("eiin", row)
+        if not eiin and default_eiin:
+            eiin = default_eiin
+        if not eiin:
+            skipped += 1
+            continue
+
+        # NB: pass NORMALIZED header keys to col() (e.g. "insmpocode", not
+        # "ins_mpo_code") — col() resolves via the normalized-header map.
+        mpo_code = col("insmpocode", row)
+        branch_id = _parse_int(col("insbranchid", row))
+        ps_id = _parse_int(col("psid", row))
+
         try:
-            school = schools.get_or_create(school_name, school_code)
+            inst = institutions.get_or_create(str(eiin).strip(), mpo_code, branch_id, ps_id)
         except Exception:
             db.rollback()
             skipped += 1
             continue
 
-        # --- build student ---
-        extra: dict = {}
-        student = {"school_id": school.id}
+        employee = {"institution_id": inst.id, "eiin": str(eiin).strip()}
 
         for norm_h in norm_to_raw:
-            target = COLUMN_MAP.get(norm_h, "__unknown__")
+            target = COLUMN_MAP.get(norm_h)
             value = col(norm_h, row)
             if value is None or value == "":
                 continue
-            if target == "__unknown__":
-                if norm_h in _IGNORED:
-                    continue
-                raw = norm_to_raw[norm_h]
-                unknown_cols.add(raw)
-                extra[raw] = value
+            if target is None:
+                # Unrecognized column -> ignore silently (kept out of the model).
+                # The full EMIS schema is already mapped; anything extra is noise.
+                unknown_cols.add(norm_to_raw[norm_h])
                 continue
-            if target in _SCHOOL_LEVEL:
+            if target in _INSTITUTION_FIELDS:
                 continue
-            if target is None:  # "name" / "fullname"
-                if norm_h == "name":
-                    parts = str(value).strip().split(None, 1)
-                    student["first_name"] = parts[0] if parts else None
-                    student["last_name"] = parts[1] if len(parts) > 1 else None
-                continue
-            if target in ("date_of_birth", "admission_date"):
-                student[target] = _parse_date(value)
-                continue
-            student[target] = str(value).strip()
+            if target == "date_of_birth":
+                employee[target] = _parse_date(value)
+            elif target in _INT_FIELDS:
+                employee[target] = _parse_int(value)
+            elif target in _BOOL_FIELDS:
+                employee[target] = _parse_bool(value)
+            else:
+                employee[target] = str(value).strip()
 
-        student["extra"] = extra or None
-        batch.append(student)
+        batch.append(employee)
         inserted += 1
 
         if len(batch) >= BATCH_SIZE:
@@ -186,4 +227,9 @@ def import_csv(db: Session, csv_bytes: bytes, default_school_name: str = "Defaul
 
     flush()
     db.commit()
-    return {"inserted": inserted, "skipped": skipped, "unknown_columns": sorted(unknown_cols)}
+    return {
+        "inserted": inserted,
+        "skipped": skipped,
+        "institutions": len(institutions.by_eiin),
+        "unknown_columns": sorted(unknown_cols),
+    }

@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import models  # noqa: F401  (register models with Base)
 from .config import MASTER_KEY
 from .database import Base, engine, setup_postgres_indexes
-from .routers import admin, health, schools, students
+from .routers import admin, employees, health, institutions
 
 
 @asynccontextmanager
@@ -27,9 +27,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Student Records API",
+    title="EMIS Records API",
     description=(
-        "Centralized multi-school student records API.\n\n"
+        "Centralized multi-institution records API (Bangladesh EMIS — teachers/staff).\n\n"
         "**Data endpoints** require an `X-API-Key` header.\n"
         "**Admin endpoints** (/admin) require an `X-Master-Key` header.\n\n"
         "Generate an API key first: `POST /api/v1/admin/keys` with the master key."
@@ -49,15 +49,15 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
-app.include_router(students.router)
-app.include_router(schools.router)
+app.include_router(employees.router)
+app.include_router(institutions.router)
 app.include_router(admin.router)
 
 
 @app.get("/", include_in_schema=False)
 def root():
     return {
-        "name": "Student Records API",
+        "name": "EMIS Records API",
         "docs": "/docs",
         "health": "/health",
     }

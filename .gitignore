@@ -10,5 +10,6 @@ venv/
 .mypy_cache/
 .ruff_cache/
 test.db
-sample_students.csv
+*.csv
+*.tsv
 .DS_Store

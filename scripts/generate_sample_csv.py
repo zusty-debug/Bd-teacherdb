@@ -1,88 +1,91 @@
-"""Generate a realistic sample student CSV for local testing.
+"""Generate a realistic EMIS-style sample CSV for local testing.
 
 Usage:
-    python -m scripts.generate_sample_csv --rows 20000 --out sample_students.csv
+    python -m scripts.generate_sample_csv --rows 20000 --out sample_emis.csv
 """
 import argparse
 import csv
 import random
 
-FIRST_NAMES = [
-    "Aarav", "Vivaan", "Aditya", "Vihaan", "Arjun", "Reyansh", "Krishna", "Ishaan",
-    "Shaurya", "Atharv", "Ananya", "Diya", "Aadhya", "Saanvi", "Anika", "Pari",
-    "Myra", "Riya", "Ishita", "Sara", "Kabir", "Dev", "Rohan", "Aman", "Rahul",
-    "Priya", "Neha", "Kavya", "Meera", "Tanvi", "Zoya", "Aisha", "Nidhi", "Pooja",
+NAMES = [
+    "MD ZAMAL HOSSAIN", "ANUKUL CHANDRO SHIL", "MOSSAMMAT SHAHNAJ PARVIN",
+    "SAYMALI RANI", "SHISHIR KUMAR KIRTTANIA", "REHANA AKTER", "MD ABUL KALAM",
+    "FATEMA BEGUM", "MD RAFIQUL ISLAM", "NUSRAT JAHAN", "MD KAMAL HOSSAIN",
+    "SHARMIN SULTANA", "MD JAHANGIR ALAM", "TANIA AKTER", "MD SHARIF UDDIN",
 ]
-LAST_NAMES = [
-    "Sharma", "Verma", "Gupta", "Singh", "Kumar", "Yadav", "Patel", "Reddy",
-    "Nair", "Iyer", "Joshi", "Malhotra", "Mehta", "Chauhan", "Rathore", "Bose",
-    "Khan", "Ahmed", "Ali", "Das", "Banerjee", "Chatterjee", "Pillai", "Menon",
+DESIGNATIONS = [
+    ("ASSISTANT TEACHER", 56), ("HEAD MASTER", 76), ("ASSISTANT HEAD MASTER", 7),
+    ("LECTURER", 3), ("ASSISTANT PROFESSOR", 4), ("4TH CLASS EMPLOYEE", 2),
+    ("OFFICE ASSISTANT (MLSS)", 11), ("AYAH", 9), ("CLEANER", 8),
 ]
-GRADES = ["Nursery", "KG", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]
-SECTIONS = ["A", "B", "C", "D"]
-GENDERS = ["Male", "Female"]
-STATUSES = ["active", "active", "active", "active", "active", "transferred", "graduated"]
-CITIES = ["Delhi", "Mumbai", "Bengaluru", "Chennai", "Kolkata", "Hyderabad", "Pune", "Jaipur"]
-STATES = ["Delhi", "Maharashtra", "Karnataka", "Tamil Nadu", "West Bengal", "Telangana", "Maharashtra", "Rajasthan"]
-
-SCHOOLS = [
-    ("Sunrise Public School", "SUN001", "Delhi", "Delhi"),
-    ("Green Valley Academy", "GVA002", "Mumbai", "Maharashtra"),
-    ("St. Xavier's High School", "SXS003", "Bengaluru", "Karnataka"),
-    ("Lotus International School", "LIS004", "Chennai", "Tamil Nadu"),
+SUBJECTS = [
+    ("N/A (NOT APPLICABLE)", 1), ("MATHEMATICS", 101), ("ENGLISH", 102),
+    ("BANGLA", 103), ("SCIENCE", 104), ("COMPUTER", 105), ("LIBRARY AND INFORMATION SCIENCE", 849),
 ]
-
-
-def random_date(start_year=2004, end_year=2018):
-    import datetime
-
-    year = random.randint(start_year, end_year)
-    month = random.randint(1, 12)
-    day = random.randint(1, 28)
-    return datetime.date(year, month, day)
+STATUSES = [("কর্মরত", 1), ("সক্রিয়", 2), ("পদত্যাগকৃত", 3)]
+GENDERS = [("Male", 1), ("Female", 2)]
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--rows", type=int, default=20000)
-    parser.add_argument("--out", default="sample_students.csv")
+    parser.add_argument("--out", default="sample_emis.csv")
     args = parser.parse_args()
 
     fields = [
-        "student_id", "school_name", "school_code", "first_name", "last_name",
-        "date_of_birth", "gender", "grade", "section", "admission_date",
-        "email", "phone", "address", "guardian_name", "guardian_phone", "status",
+        "empName", "empNameBn", "designationName", "designationId", "subjectName",
+        "subjectId", "statusName", "statusId", "eiin", "insMpoCode", "insBranchId",
+        "psID", "mpoIndex", "id", "dob", "genderName", "genderId", "mobileNo",
+        "emailId", "nid", "fatherName", "motherName", "bankAccNo", "payCode",
+        "payCodeId", "payCodeStepId", "basic", "remarks", "verificationStatus",
+        "isSubmit", "isUpdated", "designationUpdatable", "subjectUpdatable",
     ]
 
     with open(args.out, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
-        writer.writeheader()
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
         for i in range(1, args.rows + 1):
-            school_name, school_code, city, state = random.choice(SCHOOLS)
-            first = random.choice(FIRST_NAMES)
-            last = random.choice(LAST_NAMES)
-            dob = random_date()
-            grade = random.choice(GRADES)
-            writer.writerow(
-                {
-                    "student_id": f"{school_code}-{i:06d}",
-                    "school_name": school_name,
-                    "school_code": school_code,
-                    "first_name": first,
-                    "last_name": last,
-                    "date_of_birth": dob.isoformat(),
-                    "gender": random.choice(GENDERS),
-                    "grade": grade,
-                    "section": random.choice(SECTIONS),
-                    "admission_date": random_date(2015, 2026).isoformat(),
-                    "email": f"{first.lower()}.{last.lower()}{i}@example.com",
-                    "phone": f"9{random.randint(100000000, 999999999)}",
-                    "address": f"{random.randint(1, 999)}, {random.choice(['MG Road', 'Park Street', 'Lake View', 'Sector 12'])}, {city}",
-                    "guardian_name": f"{random.choice(FIRST_NAMES)} {last}",
-                    "guardian_phone": f"9{random.randint(100000000, 999999999)}",
-                    "status": random.choice(STATUSES),
-                }
-            )
+            eiin = str(random.randint(100000, 130000))
+            des_name, des_id = random.choice(DESIGNATIONS)
+            sub_name, sub_id = random.choice(SUBJECTS)
+            status, status_id = random.choice(STATUSES)
+            gender, gender_id = random.choice(GENDERS)
+            name = random.choice(NAMES)
+            w.writerow({
+                "empName": name,
+                "empNameBn": name,
+                "designationName": des_name,
+                "designationId": des_id,
+                "subjectName": sub_name,
+                "subjectId": sub_id,
+                "statusName": status,
+                "statusId": status_id,
+                "eiin": eiin,
+                "insMpoCode": str(random.randint(1000000000, 9999999999)),
+                "insBranchId": random.randint(10000, 20000),
+                "psID": random.randint(100000000, 999999999),
+                "mpoIndex": f"{random.choice('BNT')}{random.randint(100000, 9999999)}",
+                "id": i,
+                "dob": f"{random.randint(1,28):02d}-{random.randint(1,12):02d}-{random.randint(1960,1995)}",
+                "genderName": gender,
+                "genderId": gender_id,
+                "mobileNo": f"01{random.randint(100000000, 999999999)}",
+                "emailId": "",
+                "nid": str(random.randint(1000000000, 9999999999)),
+                "fatherName": random.choice(NAMES),
+                "motherName": random.choice(NAMES),
+                "bankAccNo": str(random.randint(1000, 99999)),
+                "payCode": f"Pay Code {random.randint(1,12):02d}",
+                "payCodeId": random.randint(1, 12),
+                "payCodeStepId": random.randint(1, 12),
+                "basic": random.choice([22000, 25480, 35720, 45040, 52000]),
+                "remarks": "",
+                "verificationStatus": "Validation Completed",
+                "isSubmit": 1,
+                "isUpdated": random.choice([0, 1]),
+                "designationUpdatable": random.choice([0, 1]),
+                "subjectUpdatable": random.choice([0, 1]),
+            })
 
     print(f"Wrote {args.rows} rows to {args.out}")
 

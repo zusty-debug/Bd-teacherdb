@@ -40,10 +40,10 @@ def setup_postgres_indexes() -> None:
 
     with engine.begin() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-        for col in ("first_name", "last_name", "student_code", "email"):
+        for col in ("name", "name_bn", "mobile_no", "email", "nid", "father_name"):
             conn.execute(
                 text(
-                    f"CREATE INDEX IF NOT EXISTS ix_students_{col}_trgm "
-                    f"ON students USING gin (lower({col}) gin_trgm_ops)"
+                    f"CREATE INDEX IF NOT EXISTS ix_employees_{col}_trgm "
+                    f"ON employees USING gin (lower({col}) gin_trgm_ops)"
                 )
             )
