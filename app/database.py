@@ -38,12 +38,20 @@ def setup_postgres_indexes() -> None:
         return
     from sqlalchemy import text
 
-    with engine.begin() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-        for col in ("name", "name_bn", "mobile_no", "email", "nid", "father_name"):
-            conn.execute(
-                text(
-                    f"CREATE INDEX IF NOT EXISTS ix_employees_{col}_trgm "
-                    f"ON employees USING gin (lower({col}) gin_trgm_ops)"
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+            for col in ("name", "name_bn", "mobile_no", "email", "nid", "father_name"):
+                conn.execute(
+                    text(
+                        f"CREATE INDEX IF NOT EXISTS ix_employees_{col}_trgm "
+                        f"ON employees USING gin (lower({col}) gin_trgm_ops)"
+                    )
                 )
-            )
+    except Exception as e:  # never let index setup prevent startup
+        import logging
+
+        logging.getLogger("uvicorn.error").warning(
+            f"Could not create pg_trgm search indexes (search will still work, "
+            f"just slower): {e}"
+        )
