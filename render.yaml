@@ -1,0 +1,21 @@
+# Render Blueprint — defines the web service + managed Postgres.
+# Push this repo to GitHub, then in Render: "New" -> "Blueprint".
+services:
+  - type: web
+    name: student-records-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: student-records-db
+          property: connectionString
+      - key: MASTER_KEY
+        generateValue: true   # Render generates & stores a random secret
+      - key: PYTHON_VERSION
+        value: 3.13.0
+
+databases:
+  - name: student-records-db
+    plan: free
